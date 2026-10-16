@@ -28,28 +28,28 @@ class CustomRole(commands.Cog):
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        """Bắt lỗi khi sử dụng lệnh để phản hồi Embed thay vì im lặng."""
+        """Bắt lỗi khi sử dụng lệnh để phản hồi Embed ẩn thay vì im lặng."""
         if isinstance(error, commands.MissingPermissions):
             embed = discord.Embed(
                 title="❌ Thiếu Quyền Hạn",
                 description="Bạn cần có quyền **Manage Roles** để thực hiện lệnh này!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
         elif isinstance(error, commands.BadArgument):
             embed = discord.Embed(
                 title="❌ Tham Số Không Hợp Lệ",
                 description="Vui lòng kiểm tra lại ID/Mention của Role hoặc User!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
         elif isinstance(error, commands.MissingRequiredArgument):
             embed = discord.Embed(
                 title="❌ Thiếu Tham Số",
                 description=f"Vui lòng nhập đầy đủ các tham số cho lệnh `{ctx.command.name}`!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
 
     # --- 🔄 VÒNG LẶP KIỂM TRA & ĐỒNG BỘ TỰ ĐỘNG (NGẦM) ---
 
@@ -116,7 +116,7 @@ class CustomRole(commands.Cog):
     async def before_check_loop(self):
         await self.bot.wait_until_ready()
 
-    # --- 1. LỆNH LIÊN KẾT ROLE CUSTOM ---
+    # --- 1. LỆNH LIÊN KẾT ROLE CUSTOM (EPHEMERAL) ---
 
     @commands.hybrid_command(name="link", description="Liên kết Role Custom cho một User.")
     @app_commands.describe(child_role="Role Custom cần cấp", member="Thành viên sở hữu role")
@@ -132,7 +132,7 @@ class CustomRole(commands.Cog):
                 description="Server chưa thiết lập Role Booster chung!\nVui lòng dùng lệnh `/booster` hoặc `kb.booster` trước.",
                 color=discord.Color.gold()
             )
-            return await ctx.send(embed=embed)
+            return await ctx.send(embed=embed, ephemeral=True)
 
         existing_link = self.db.get("links", {}).get(guild_id, {}).get(str(child_role.id))
         if existing_link:
@@ -149,7 +149,7 @@ class CustomRole(commands.Cog):
                 ),
                 color=discord.Color.red()
             )
-            return await ctx.send(embed=embed)
+            return await ctx.send(embed=embed, ephemeral=True)
 
         if guild_id not in self.db["links"]:
             self.db["links"][guild_id] = {}
@@ -190,16 +190,16 @@ class CustomRole(commands.Cog):
             embed.add_field(name="⚡ Yêu Cầu", value=f"Có Role Booster ({booster_text})", inline=False)
             embed.add_field(name="📌 Trạng Thái Cấp Role", value=status_text, inline=False)
             
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
         else:
             embed = discord.Embed(
                 title="❌ Lỗi Hệ Thống",
                 description="Đã xảy ra lỗi khi lưu vào Database!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
 
-    # --- 2. LỆNH HỦY LIÊN KẾT & GỠ ROLE ---
+    # --- 2. LỆNH HỦY LIÊN KẾT & GỠ ROLE (EPHEMERAL) ---
 
     @commands.hybrid_command(name="unlink", description="Hủy liên kết của một Role Custom và gỡ khỏi người dùng.")
     @app_commands.describe(child_role="Role Custom cần hủy liên kết")
@@ -236,16 +236,16 @@ class CustomRole(commands.Cog):
                 description=description_text,
                 color=discord.Color.green()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
         else:
             embed = discord.Embed(
                 title="❌ Lỗi Thực Thi",
                 description=f"Role {child_role.mention} chưa từng được thiết lập liên kết nào.",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
 
-    # --- 3. LỆNH KHÔI PHỤC ROLE THỦ CÔNG ---
+    # --- 3. LỆNH KHÔI PHỤC ROLE THỦ CÔNG (EPHEMERAL) ---
 
     @commands.hybrid_command(name="restore", description="Khôi phục thủ công lập tức mà không cần đợi vòng lặp ngầm.")
     @app_commands.describe(member="Thành viên cần khôi phục (để trống nếu muốn quét toàn server)")
@@ -262,7 +262,7 @@ class CustomRole(commands.Cog):
                 description="Server chưa thiết lập Role Booster hoặc chưa có liên kết nào.",
                 color=discord.Color.gold()
             )
-            return await ctx.send(embed=embed)
+            return await ctx.send(embed=embed, ephemeral=True)
 
         target_members = [member] if member else ctx.guild.members
         restored_count = 0
@@ -293,9 +293,9 @@ class CustomRole(commands.Cog):
             description=f"Đã cấp bổ sung **{restored_count}** role.",
             color=discord.Color.green()
         )
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, ephemeral=True)
 
-    # --- 4. LỆNH DỌN DẸP DATABASE SERVER ---
+    # --- 4. LỆNH DỌN DẸP DATABASE SERVER (EPHEMERAL) ---
 
     @commands.hybrid_command(name="clear", description="Xóa toàn bộ dữ liệu cài đặt Role của server này.")
     @commands.has_permissions(administrator=True)
@@ -327,7 +327,7 @@ class CustomRole(commands.Cog):
                 description="Đã xảy ra lỗi khi cập nhật Database!",
                 color=discord.Color.red()
             )
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, ephemeral=True)
 
     # --- 5. SỰ KIỆN LẮNG NGHE ĐỔI ROLE REAL-TIME ---
 
@@ -387,4 +387,4 @@ class CustomRole(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(CustomRole(bot))
-    
+        
