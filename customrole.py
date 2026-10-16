@@ -1,68 +1,9 @@
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import database
 
-
-# ==============================================================================
-# CLASS TẠO GIAO DIỆN NÚT BẤM CHUYỂN TRANG CHO KB.LIST (10 ITEMS / TRANG)
-# ==============================================================================
-
-class RoleListView(discord.ui.View):
-    def __init__(self, ctx, pages):
-        super().__init__(timeout=120)  # Nút bấm hoạt động trong 120 giây
-        self.ctx = ctx
-        self.pages = pages
-        self.current_page = 0
-        self.message = None
-        self.update_buttons()
-
-    def update_buttons(self):
-        """Cập nhật trạng thái bật/tắt của các nút theo trang hiện tại."""
-        self.btn_prev.disabled = (self.current_page == 0)
-        self.btn_next.disabled = (self.current_page == len(self.pages) - 1)
-        self.btn_page.label = f"Trang {self.current_page + 1}/{len(self.pages)}"
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Đảm bảo chỉ người dùng gõ lệnh mới có thể bấm nút."""
-        if interaction.user != self.ctx.author:
-            await interaction.response.send_message(
-                "❌ Bạn không thể dùng nút chuyển trang của người khác!", 
-                ephemeral=True
-            )
-            return False
-        return True
-
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary, custom_id="prev_btn")
-    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page -= 1
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
-
-    @discord.ui.button(label="Trang 1/1", style=discord.ButtonStyle.secondary, disabled=True, custom_id="page_indicator")
-    async def btn_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
-
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary, custom_id="next_btn")
-    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page += 1
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
-
-    async def on_timeout(self):
-        """Vô hiệu hóa nút bấm khi hết thời gian chờ."""
-        for child in self.children:
-            child.disabled = True
-        try:
-            if self.message:
-                await self.message.edit(view=self)
-        except Exception:
-            pass
-
-
-# ==============================================================================
-# MAIN COG: CUSTOM ROLE MANAGEMENT
-# ==============================================================================
 
 class CustomRole(commands.Cog):
     def __init__(self, bot):
@@ -83,11 +24,11 @@ class CustomRole(commands.Cog):
         if "booster_roles" not in self.db:
             self.db["booster_roles"] = {}
 
-    # --- ⚠️ TỰ ĐỘNG XỬ LÝ & BÁO LỖI LỆNH PREFIX ---
+    # --- ⚠️ TỰ ĐỘNG XỬ LÝ & BÁO LỖI LỆNH ---
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        """Bắt lỗi khi sử dụng prefix kb. để phản hồi Embed thay vì im lặng."""
+        """Bắt lỗi khi sử dụng lệnh để phản hồi Embed thay vì im lặng."""
         if isinstance(error, commands.MissingPermissions):
             embed = discord.Embed(
                 title="❌ Thiếu Quyền Hạn",
@@ -98,7 +39,7 @@ class CustomRole(commands.Cog):
         elif isinstance(error, commands.BadArgument):
             embed = discord.Embed(
                 title="❌ Tham Số Không Hợp Lệ",
-                description="Vui lòng kiểm tra lại ID/Mention của Role hoặc User (Đảm bảo tag đúng hoặc dán đúng ID)!",
+                description="Vui lòng kiểm tra lại ID/Mention của Role hoặc User!",
                 color=discord.Color.red()
             )
             await ctx.send(embed=embed)
@@ -115,6 +56,7 @@ class CustomRole(commands.Cog):
     @tasks.loop(minutes=1)
     async def auto_check_loop(self):
         """Vòng lặp ngầm chạy 1 phút/lần để quét và đồng bộ Role Custom toàn hệ thống."""
+        self.db = database.load_data()
         links_db = self.db.get("links", {})
         booster_db = self.db.get("booster_roles", {})
 
@@ -148,7 +90,6 @@ class CustomRole(commands.Cog):
                     except discord.NotFound:
                         owner_member = None
 
-                # 1. Kiểm tra và cấp/gỡ role cho đúng chủ sở hữu
                 if owner_member:
                     owner_role_ids = {str(r.id) for r in owner_member.roles}
 
@@ -164,7 +105,6 @@ class CustomRole(commands.Cog):
                         except Exception as e:
                             print(f"[AUTO-LOOP ERROR REMOVE] {e}")
 
-                # 2. Gỡ role nếu bị trao nhầm cho thành viên khác
                 for member in child_role.members:
                     if str(member.id) != owner_user_id:
                         try:
@@ -176,60 +116,24 @@ class CustomRole(commands.Cog):
     async def before_check_loop(self):
         await self.bot.wait_until_ready()
 
-    # --- 1. LỆNH CẤU HÌNH ROLE BOOSTER DÙNG CHUNG ---
+    # --- 1. LỆNH LIÊN KẾT ROLE CUSTOM ---
 
-    @commands.command(name="booster")
-    @commands.has_permissions(manage_roles=True)
-    async def set_booster_role(self, ctx, booster_role: discord.Role):
-        """Thiết lập Role Booster cố định cho server."""
-        self._ensure_db_structure()
-        guild_id = str(ctx.guild.id)
-        self.db["booster_roles"][guild_id] = str(booster_role.id)
-        
-        try:
-            success = await asyncio.to_thread(database.save_data, self.db)
-        except Exception as e:
-            print(f"[SAVE ERROR] {e}")
-            success = False
-
-        if success:
-            embed = discord.Embed(
-                title="✅ Cài Đặt Role Booster Thành Công",
-                description=(
-                    f"⚡ **Role Booster chung:** {booster_role.mention} (ID: `{booster_role.id}`)\n\n"
-                    f"📌 *Cú pháp liên kết:* `kb.link <@role_custom> <@user>`"
-                ),
-                color=discord.Color.green()
-            )
-            await ctx.send(embed=embed)
-        else:
-            embed = discord.Embed(
-                title="❌ Lỗi Hệ Thống",
-                description="Đã xảy ra lỗi khi lưu dữ liệu vào Database!",
-                color=discord.Color.red()
-            )
-            await ctx.send(embed=embed)
-
-    # --- 2. LỆNH LIÊN KẾT ROLE CUSTOM ---
-
-    @commands.command(name="link")
+    @commands.hybrid_command(name="link", description="Liên kết Role Custom cho một User.")
+    @app_commands.describe(child_role="Role Custom cần cấp", member="Thành viên sở hữu role")
     @commands.has_permissions(manage_roles=True)
     async def link_roles(self, ctx, child_role: discord.Role, member: discord.Member):
-        """Liên kết Role Custom cho một User và tự động cấp role nếu có Booster."""
         self._ensure_db_structure()
         guild_id = str(ctx.guild.id)
         booster_role_id = self.db.get("booster_roles", {}).get(guild_id)
 
-        # 1. Kiểm tra xem Server đã cấu hình Role Booster chung chưa
         if not booster_role_id:
             embed = discord.Embed(
                 title="⚠️ Chưa Thiết Lập Role Booster",
-                description="Server chưa thiết lập Role Booster chung!\nVui lòng dùng lệnh `kb.booster <@role_booster>` trước.",
+                description="Server chưa thiết lập Role Booster chung!\nVui lòng dùng lệnh `/booster` hoặc `kb.booster` trước.",
                 color=discord.Color.gold()
             )
             return await ctx.send(embed=embed)
 
-        # 2. Kiểm tra trùng lặp: Nếu role này đã link cho người khác
         existing_link = self.db.get("links", {}).get(guild_id, {}).get(str(child_role.id))
         if existing_link:
             existing_user_id = existing_link.get("user_id") if isinstance(existing_link, dict) else str(existing_link)
@@ -240,14 +144,13 @@ class CustomRole(commands.Cog):
                 title="❌ Role Đã Được Liên Kết Trước Đó",
                 description=(
                     f"Role {child_role.mention} hiện tại đã được gán cho {existing_owner_text}!\n\n"
-                    f"💡 *Nếu muốn chuyển role này cho {member.mention}, bạn cần gõ lệnh bên dưới để hủy liên kết cũ trước:*\n"
-                    f"`kb.unlink {child_role.mention}`"
+                    f"💡 *Nếu muốn chuyển role này cho {member.mention}, hãy gõ lệnh hủy liên kết cũ trước:*\n"
+                    f"`/unlink {child_role.name}` hoặc `kb.unlink {child_role.mention}`"
                 ),
                 color=discord.Color.red()
             )
             return await ctx.send(embed=embed)
 
-        # 3. Tạo dữ liệu liên kết mới
         if guild_id not in self.db["links"]:
             self.db["links"][guild_id] = {}
 
@@ -267,10 +170,9 @@ class CustomRole(commands.Cog):
             
             user_role_ids = {str(r.id) for r in member.roles}
             
-            # Cấp role trực tiếp nếu người đó đang có Role Booster
             if booster_role_id in user_role_ids:
                 try:
-                    await member.add_roles(child_role, reason="Cấp Role Custom khi thực hiện lệnh kb.link")
+                    await member.add_roles(child_role, reason="Cấp Role Custom khi thực hiện lệnh link")
                     status_text = "✅ **Đã thêm role trực tiếp cho người dùng thành công!**"
                 except discord.Forbidden:
                     status_text = "⚠️ *Lưu liên kết thành công nhưng Bot thiếu quyền hoặc vị trí Role của Bot thấp hơn Role Custom.*"
@@ -297,22 +199,21 @@ class CustomRole(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    # --- 3. LỆNH HỦY LIÊN KẾT & GỠ ROLE ---
+    # --- 2. LỆNH HỦY LIÊN KẾT & GỠ ROLE ---
 
-    @commands.command(name="unlink")
+    @commands.hybrid_command(name="unlink", description="Hủy liên kết của một Role Custom và gỡ khỏi người dùng.")
+    @app_commands.describe(child_role="Role Custom cần hủy liên kết")
     @commands.has_permissions(manage_roles=True)
     async def unlink_roles(self, ctx, child_role: discord.Role):
-        """Hủy liên kết của một Role Custom và tự động gỡ role khỏi thành viên."""
         self._ensure_db_structure()
         guild_id = str(ctx.guild.id)
         if guild_id in self.db["links"] and str(child_role.id) in self.db["links"][guild_id]:
-            # Gỡ role trực tiếp từ tất cả các member đang giữ role này
             members_with_role = list(child_role.members)
             removed_count = 0
 
             for member in members_with_role:
                 try:
-                    await member.remove_roles(child_role, reason="Hủy liên kết bằng lệnh kb.unlink")
+                    await member.remove_roles(child_role, reason="Hủy liên kết bằng lệnh unlink")
                     removed_count += 1
                 except Exception as e:
                     print(f"[UNLINK ERROR REMOVE] {e}")
@@ -344,103 +245,21 @@ class CustomRole(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    # --- 4. LỆNH XEM DANH SÁCH (PHÂN TRANG 10 ITEMS + BUTTONS) ---
+    # --- 3. LỆNH KHÔI PHỤC ROLE THỦ CÔNG ---
 
-    @commands.command(name="list")
-    async def list_links(self, ctx):
-        """Xem danh sách Role Booster chung và các Role Custom trong server (10 role/trang)."""
-        try:
-            self._ensure_db_structure()
-            guild_id = str(ctx.guild.id)
-            links = self.db.get("links", {}).get(guild_id, {})
-            booster_role_id = self.db.get("booster_roles", {}).get(guild_id)
-
-            # Lấy thông tin Role Booster chung
-            booster_role = None
-            if booster_role_id and str(booster_role_id).isdigit():
-                booster_role = ctx.guild.get_role(int(booster_role_id))
-
-            booster_name = (
-                booster_role.mention if booster_role 
-                else (f"ID: `{booster_role_id}`" if booster_role_id 
-                else "❌ *Chưa thiết lập (Dùng kb.booster)*")
-            )
-
-            if not links:
-                embed = discord.Embed(title="🔗 Danh Sách Role Custom", color=discord.Color.blue())
-                embed.description = f"⚡ **Role Booster chung:** {booster_name}\n"
-                embed.add_field(name="Thông báo", value="Chưa có liên kết role custom nào.", inline=False)
-                return await ctx.send(embed=embed)
-
-            # Chia danh sách role thành các nhóm 10 item/trang
-            items = list(links.items())
-            chunk_size = 10
-            chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
-
-            pages = []
-            total_pages = len(chunks)
-
-            for page_index, chunk in enumerate(chunks, start=1):
-                embed = discord.Embed(title="🔗 Danh Sách Role Custom", color=discord.Color.blue())
-                embed.description = (
-                    f"⚡ **Role Booster chung:** {booster_name}\n"
-                    f"🔄 **Chế độ quét:** Tự động check ngầm mỗi 1 phút\n"
-                    f"📊 **Tổng số role liên kết:** `{len(items)}`"
-                )
-
-                for child_id_str, info in chunk:
-                    if isinstance(info, dict):
-                        user_id = info.get("user_id")
-                    else:
-                        user_id = str(info)
-
-                    child_role = ctx.guild.get_role(int(child_id_str)) if str(child_id_str).isdigit() else None
-                    owner_member = ctx.guild.get_member(int(user_id)) if user_id and str(user_id).isdigit() else None
-
-                    title_text = child_role.name if child_role else f"Role ID: {child_id_str}"
-                    child_mention = child_role.mention if child_role else f"`{child_id_str}`"
-                    owner_mention = owner_member.mention if owner_member else (f"`{user_id}`" if user_id else "Không xác định")
-
-                    embed.add_field(
-                        name=f"📌 {title_text}", 
-                        value=f"🎭 **Role Custom:** {child_mention}\n👤 **Chủ sở hữu:** {owner_mention}", 
-                        inline=False
-                    )
-
-                embed.set_footer(text=f"Trang {page_index}/{total_pages} • Sử dụng nút bấm bên dưới để chuyển trang")
-                pages.append(embed)
-
-            # Phân nhánh hiển thị theo số lượng trang
-            if len(pages) == 1:
-                await ctx.send(embed=pages[0])
-            else:
-                view = RoleListView(ctx, pages)
-                view.message = await ctx.send(embed=pages[0], view=view)
-
-        except Exception as e:
-            print(f"[LIST ERROR] {e}")
-            error_embed = discord.Embed(
-                title="❌ Lỗi Hiển Thị Danh Sách",
-                description=f"Đã xảy ra lỗi: `{e}`",
-                color=discord.Color.red()
-            )
-            await ctx.send(embed=error_embed)
-
-    # --- 5. LỆNH KHÔI PHỤC ROLE THỦ CÔNG ---
-
-    @commands.command(name="restore")
+    @commands.hybrid_command(name="restore", description="Khôi phục thủ công lập tức mà không cần đợi vòng lặp ngầm.")
+    @app_commands.describe(member="Thành viên cần khôi phục (để trống nếu muốn quét toàn server)")
     @commands.has_permissions(manage_roles=True)
     async def restore_roles(self, ctx, member: discord.Member = None):
-        """Khôi phục thủ công lập tức mà không cần đợi vòng lặp ngầm."""
         self._ensure_db_structure()
         guild_id = str(ctx.guild.id)
-        guild_links = self.db.get("links", {}).get(guild_id, {})
+        guild_links = self.db["links"].get(guild_id, {})
         booster_role_id = self.db.get("booster_roles", {}).get(guild_id)
 
         if not booster_role_id or not guild_links:
             embed = discord.Embed(
                 title="⚠️ Chưa Có Dữ Liệu",
-                description="Server chưa thiết lập Role Booster (`kb.booster`) hoặc chưa có liên kết nào.",
+                description="Server chưa thiết lập Role Booster hoặc chưa có liên kết nào.",
                 color=discord.Color.gold()
             )
             return await ctx.send(embed=embed)
@@ -464,7 +283,7 @@ class CustomRole(commands.Cog):
 
             if to_add:
                 try:
-                    await target.add_roles(*to_add, reason="Khôi phục role bằng kb.restore")
+                    await target.add_roles(*to_add, reason="Khôi phục role bằng restore")
                     restored_count += len(to_add)
                 except discord.Forbidden:
                     pass
@@ -476,12 +295,11 @@ class CustomRole(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-    # --- 6. LỆNH DỌN DẸP / RESET DATABASE SERVER ---
+    # --- 4. LỆNH DỌN DẸP DATABASE SERVER ---
 
-    @commands.command(name="clear")
+    @commands.hybrid_command(name="clear", description="Xóa toàn bộ dữ liệu cài đặt Role của server này.")
     @commands.has_permissions(administrator=True)
     async def clear_all_data(self, ctx):
-        """Xóa toàn bộ dữ liệu cài đặt Role của server này."""
         self._ensure_db_structure()
         guild_id = str(ctx.guild.id)
 
@@ -511,7 +329,7 @@ class CustomRole(commands.Cog):
             )
         await ctx.send(embed=embed)
 
-    # --- 7. SỰ KIỆN LẮNG NGHE ĐỔI ROLE REAL-TIME ---
+    # --- 5. SỰ KIỆN LẮNG NGHE ĐỔI ROLE REAL-TIME ---
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
@@ -569,3 +387,4 @@ class CustomRole(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(CustomRole(bot))
+    
