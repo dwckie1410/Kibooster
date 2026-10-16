@@ -80,7 +80,7 @@ class RoleViewsCog(commands.Cog):
         if "booster_roles" not in self.db:
             self.db["booster_roles"] = {}
 
-    # --- 1. LỆNH CẤU HÌNH ROLE BOOSTER DÙNG CHUNG ---
+    # --- 1. LỆNH CẤU HÌNH ROLE BOOSTER DÙNG CHUNG (CÔNG KHAI) ---
 
     @commands.hybrid_command(name="booster", description="Thiết lập Role Booster cố định cho server.")
     @app_commands.describe(booster_role="Role Booster chung của Server")
@@ -105,16 +105,16 @@ class RoleViewsCog(commands.Cog):
                 ),
                 color=discord.Color.green()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed)  # Công khai tin nhắn
         else:
             embed = discord.Embed(
                 title="❌ Lỗi Hệ Thống",
                 description="Đã xảy ra lỗi khi lưu dữ liệu vào Database!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed)  # Công khai tin nhắn
 
-    # --- 2. LỆNH XEM DANH SÁCH (PHÂN TRANG 10 ITEMS + BUTTONS) ---
+    # --- 2. LỆNH XEM DANH SÁCH (CHỈ MÌNH BẢN THÂN THẤY - EPHEMERAL) ---
 
     @commands.hybrid_command(name="list", description="Xem danh sách Role Booster chung và các Role Custom.")
     async def list_links(self, ctx):
@@ -139,7 +139,7 @@ class RoleViewsCog(commands.Cog):
                 embed = discord.Embed(title="🔗 Danh Sách Role Custom", color=discord.Color.blue())
                 embed.description = f"⚡ **Role Booster chung:** {booster_name}\n"
                 embed.add_field(name="Thông báo", value="Chưa có liên kết role custom nào.", inline=False)
-                return await ctx.send(embed=embed)
+                return await ctx.send(embed=embed, ephemeral=True)
 
             items = list(links.items())
             chunk_size = 10
@@ -179,10 +179,10 @@ class RoleViewsCog(commands.Cog):
                 pages.append(embed)
 
             if len(pages) == 1:
-                await ctx.send(embed=pages[0])
+                await ctx.send(embed=pages[0], ephemeral=True)
             else:
                 view = RoleListView(ctx, pages)
-                view.message = await ctx.send(embed=pages[0], view=view)
+                view.message = await ctx.send(embed=pages[0], view=view, ephemeral=True)
 
         except Exception as e:
             print(f"[LIST ERROR] {e}")
@@ -191,8 +191,9 @@ class RoleViewsCog(commands.Cog):
                 description=f"Đã xảy ra lỗi: `{e}`",
                 color=discord.Color.red()
             )
-            await ctx.send(error_embed)
+            await ctx.send(embed=error_embed, ephemeral=True)
 
 
 async def setup(bot):
     await bot.add_cog(RoleViewsCog(bot))
+    
